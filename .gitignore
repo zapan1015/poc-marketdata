@@ -1,0 +1,58 @@
+# ==============================================================================
+# Git Ignore for Ultra-low Latency Market Data & FDS PoC
+# ==============================================================================
+
+# Compiled Binaries & Executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.bin
+*.out
+
+# Go binaries (Linux ELF / WSL builds)
+services/latency-probe/latency-probe
+services/materializer/materializer
+services/traffic-gen/traffic-gen
+
+# Vagrant local virtual machine state
+.vagrant/
+vagrant/.vagrant/
+
+# Runtime test data & generated ground truth (preserve directory structure)
+validation/ground_truth/*.json
+!validation/ground_truth/.gitkeep
+
+# Logs, dumps & temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Environment local overrides (keep template .env tracked)
+.env.local
+.env.*.local
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates

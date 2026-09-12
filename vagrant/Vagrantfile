@@ -1,0 +1,29 @@
+# vagrant/Vagrantfile — 부록 A: Multi-DC 하이브리드 검증 환경
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/jammy64"
+
+  config.vm.define "dc-a" do |dc|
+    dc.vm.hostname = "dc-a"
+    dc.vm.network "private_network", ip: "192.168.56.11"
+    dc.vm.provider "virtualbox" do |vb|
+      vb.memory = 4096
+      vb.cpus = 2
+      vb.customize ["modifyvm", :id, "--cableconnected1", "on"]
+    end
+    dc.vm.provision "shell", path: "provision/common.sh"
+    dc.vm.provision "shell", path: "provision/dc-a-setup.sh"
+    dc.vm.synced_folder "./compose", "/home/vagrant/compose"
+  end
+
+  config.vm.define "dc-b" do |dc|
+    dc.vm.hostname = "dc-b"
+    dc.vm.network "private_network", ip: "192.168.56.12"
+    dc.vm.provider "virtualbox" do |vb|
+      vb.memory = 4096
+      vb.cpus = 2
+    end
+    dc.vm.provision "shell", path: "provision/common.sh"
+    dc.vm.provision "shell", path: "provision/dc-b-setup.sh"
+    dc.vm.synced_folder "./compose", "/home/vagrant/compose"
+  end
+end

@@ -1,0 +1,31 @@
+services:
+  scylladb-b:
+    image: scylladb/scylla:5.4
+    container_name: scylladb-b
+    command: >
+      --smp 2 --memory 2G --overprovisioned 1
+      --seeds 192.168.56.11,192.168.56.12
+      --listen-address 192.168.56.12
+      --broadcast-address 192.168.56.12
+      --broadcast-rpc-address 192.168.56.12
+      --endpoint-snitch GossipingPropertyFileSnitch
+    environment:
+      - SCYLLA_DC=dc-b
+      - SCYLLA_RACK=rack1
+    network_mode: host
+
+  redpanda-b:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
+    container_name: redpanda-b
+    command:
+      - redpanda start --smp 1 --memory 1G --overprovisioned
+      - --kafka-addr internal://192.168.56.12:9092
+      - --advertise-kafka-addr internal://192.168.56.12:9092
+    network_mode: host
+
+  nats-b:
+    image: nats:2.10-alpine
+    container_name: nats-b
+    command: ["-cluster", "nats://0.0.0.0:6222",
+              "-routes", "nats://192.168.56.11:6222"]
+    network_mode: host

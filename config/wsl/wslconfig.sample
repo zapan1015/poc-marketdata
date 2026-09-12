@@ -1,0 +1,12 @@
+# Windows 사용자 홈 디렉토리 C:\Users\<user>\.wslconfig 로 복사하여 사용
+[wsl2]
+memory=20GB          # 호스트 RAM의 60~70% 수준으로 설정 (예: 32GB 호스트 기준)
+processors=8          # 호스트 논리 코어의 70~80%
+swap=4GB
+localhostForwarding=true
+nestedVirtualization=false
+kernelCommandLine=cgroup_no_v1=all
+
+[experimental]
+autoMemoryReclaim=gradual
+sparseVhd=true        # vhdx 자동 압축 지원 (Windows 11 22H2+)

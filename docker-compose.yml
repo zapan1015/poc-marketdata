@@ -1,0 +1,77 @@
+networks:
+  poc-net:
+    driver: bridge
+
+volumes:
+  scylla-data:
+  clickhouse-data:
+  redpanda-data:
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.1.1
+    container_name: redpanda
+    command:
+      - redpanda start
+      - --smp 2
+      - --memory 2G
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "${REDPANDA_OUTSIDE_PORT:-19092}:19092"
+      - "${REDPANDA_ADMIN_PORT:-9644}:9644"   # admin API (헬스체크용)
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    networks: [poc-net]
+
+  scylladb:
+    image: scylladb/scylla:5.4
+    container_name: scylladb
+    command: --smp 2 --memory 4G --overprovisioned 1 --api-address 0.0.0.0
+    ports:
+      - "${SCYLLA_CQL_PORT:-9042}:9042"       # CQL
+      - "${SCYLLA_REST_PORT:-10000}:10000"   # REST API (헬스체크용)
+    volumes:
+      - scylla-data:/var/lib/scylla
+    networks: [poc-net]
+
+  clickhouse-keeper:
+    image: clickhouse/clickhouse-keeper:24.3
+    container_name: clickhouse-keeper
+    ports:
+      - "${CH_KEEPER_PORT:-9181}:9181"
+    networks: [poc-net]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: clickhouse
+    depends_on: [clickhouse-keeper]
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"   # HTTP
+      - "${CLICKHOUSE_NATIVE_PORT:-9000}:9000" # Native
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    environment:
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    networks: [poc-net]
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: nats
+    command: ["-js", "-m", "8222"]  # JetStream 옵션은 비활성 상태로 두고 Core만 사용
+    ports:
+      - "${NATS_CLIENT_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"   # 모니터링(헬스체크용)
+    networks: [poc-net]
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.6.0
+    container_name: redpanda-console
+    environment:
+      - KAFKA_BROKERS=redpanda:9092
+    ports:
+      - "${REDPANDA_CONSOLE_PORT:-8080}:8080"
+    depends_on: [redpanda]
+    networks: [poc-net]

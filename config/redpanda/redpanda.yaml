@@ -1,0 +1,22 @@
+# Redpanda 브로커 설정 오버라이드 (필요시 컨테이너에 마운트)
+redpanda:
+  data_directory: /var/lib/redpanda/data
+  empty_seed_starts_cluster: false
+  seed_servers: []
+  rpc_server:
+    address: 0.0.0.0
+    port: 33145
+  kafka_api:
+    - address: 0.0.0.0
+      port: 9092
+      name: internal
+    - address: 0.0.0.0
+      port: 19092
+      name: external
+  admin:
+    - address: 0.0.0.0
+      port: 9644
+  developer_mode: true
+  auto_create_topics_enabled: true
+  default_topic_partitions: 6
+  default_topic_replications: 1

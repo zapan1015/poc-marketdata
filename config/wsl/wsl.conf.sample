@@ -1,0 +1,13 @@
+# WSL2 배포판 내부 /etc/wsl.conf 로 복사하여 사용
+[boot]
+systemd=true
+
+[automount]
+enabled=true
+options="metadata,umask=22,fmask=11"
+
+[network]
+generateResolvConf=true
+
+[interop]
+appendWindowsPath=false
