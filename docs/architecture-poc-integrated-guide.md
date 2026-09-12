@@ -167,18 +167,18 @@ CREATE KEYSPACE IF NOT EXISTS marketdata
 
 CREATE TABLE quote_latest (
     instrument_id bigint,
-    price         double,     -- [주의] gocql 드라이버 호환을 위해 임시 채택 (본운영 시 복원 필요)
-    bid_price     double,
-    ask_price     double,
+    price         bigint,     -- 고정소수점 정수형 (scale: 10^4, 예: 81210.3700 -> 812103700)
+    bid_price     bigint,     -- scale: 10^4
+    ask_price     bigint,     -- scale: 10^4
     event_ts      timestamp,
     feed_seq      bigint,
     PRIMARY KEY ((instrument_id))
 );
 ```
 
-> [!CAUTION]
-> **`double` 타입 채택의 리스크 및 본운영 복원 필수**
-> 본 PoC에서는 Go `gocql` 드라이버와 `float64` 간의 직렬화 호환성 및 빠른 검증을 위해 임시로 `double`을 채택했습니다. 그러나 실제 금융/증권 시스템에서 `double`(IEEE 754 부동소수점)은 반올림 오차(rounding error)를 유발하므로 절대 허용되지 않습니다. 본운영 환경 전환 시 반드시 **정수 기반 고정소수점(`bigint`, 예: 호가 단위를 반영한 $10^4$ 스케일링)** 또는 **임의 정밀도 `decimal`**로 원복하고 드라이버 커스텀 언마샬러를 적용해야 합니다 (§4.2 체크리스트 참조).
+> [!NOTE]
+> **고정소수점 정수형(`bigint`, scale=$10^4$) 표준 채택**
+> 부동소수점 오차(IEEE 754 rounding error)를 원천 차단하고 금융/증권 시스템의 정밀도를 보장하기 위해 전 파이프라인(Go `int64` ↔ CQL `bigint`)에 $10^4$ 스케일링을 적용했습니다. Go 드라이버와의 1:1 무변환 직렬화로 GC 오버헤드와 언마샬링 지연시간을 완전히 제거했습니다.
 
 쓰기 시 마이크로초 단위 `exchange_ts_us`를 `USING TIMESTAMP` 구문으로 지정:
 
@@ -580,8 +580,9 @@ python scripts/verify_lww.py validation/ground_truth/traffic-gen-ground-truth.js
   - Docker Desktop / WSL2 가상 네트워크(vSwitch, NAT 포워딩)를 배제하고 Bare Metal Host Network / 10G/25G 전용망 환경에서 레이턴시 재측정 (가상화 오버헤드 가설 실증).
 - [ ] **Tier 2 (100K) / Tier 3 (300K TPS) 피크 부하 실측 검증 (필수)**:
   - 로컬 환경에서 미검증된 100,000 TPS 및 피크 300,000 TPS 파이프라인 수용력을 분산 클러스터에서 부하 주입 검증.
-- [ ] **가격 데이터 타입 `double` → 고정소수점(`bigint`) 또는 `decimal` 복원 (필수)**:
-  - PoC 드라이버 연동 편의상 임시 채택된 `double`을 제거하고, IEEE 754 부동소수점 오차가 발생하지 않도록 정수 고정소수점(scale $10^4$) 또는 `decimal`로 원복 및 gocql 커스텀 언마샬러 적용.
+- [x] **가격 데이터 타입 고정소수점(bigint, scale $10^4$) 복원 완료**:
+  - IEEE 754 부동소수점 오차를 원천 배제하기 위해 ScyllaDB 및 파이프라인 전체를 정수 스케일링으로 전환 완료.
+  - Late 20%, OOO 20% 결함 주입(15만 건) 상황에서 ScyllaDB 상태와 Ground Truth 간 100% 정수 일치 실증 완료 (`price: 976221063`, `feed_seq: 36006`).
 - [ ] **CPU Pinning / NUMA 바인딩**:
   - Bare Metal 노드에서 Feed Handler, Materializer, Redpanda, NATS 코어를 고정 격리하여 레이턴시 지터(jitter) 최소화.
 

@@ -23,22 +23,22 @@ import (
 )
 
 type Tick struct {
-	InstrumentID int64   `json:"instrument_id"`
-	FeedSeq      int64   `json:"feed_seq"`
-	ExchangeTsNs int64   `json:"exchange_ts_ns"`
-	Price        float64 `json:"price"`
-	BidPrice     float64 `json:"bid_price"`
-	AskPrice     float64 `json:"ask_price"`
-	Volume       int64   `json:"volume,omitempty"`
+	InstrumentID int64 `json:"instrument_id"`
+	FeedSeq      int64 `json:"feed_seq"`
+	ExchangeTsNs int64 `json:"exchange_ts_ns"`
+	Price        int64 `json:"price"`     // fixed-point integer (scale: 10^4, e.g. 81210.3700 -> 812103700)
+	BidPrice     int64 `json:"bid_price"` // fixed-point integer (scale: 10^4)
+	AskPrice     int64 `json:"ask_price"` // fixed-point integer (scale: 10^4)
+	Volume       int64 `json:"volume,omitempty"`
 }
 
 type SymbolState struct {
-	mu           sync.Mutex
-	LastSeq      int64
-	LastPrice    float64
-	LastTsNs     int64
-	LatestValid  Tick // Ground Truth용 최신 정상 틱
-	RecentTick   *Tick
+	mu          sync.Mutex
+	LastSeq     int64
+	LastPrice   int64 // scale 10^4
+	LastTsNs    int64
+	LatestValid Tick // Ground Truth용 최신 정상 틱
+	RecentTick  *Tick
 }
 
 var (
@@ -79,9 +79,10 @@ func main() {
 
 	symbolStates := make(map[int64]*SymbolState, *symbolsCount)
 	for _, id := range symbolIDs {
+		basePrice := (50000 + (id%500)*100) * 10000
 		symbolStates[id] = &SymbolState{
 			LastSeq:   0,
-			LastPrice: 50000.0 + float64(id%500)*100.0,
+			LastPrice: basePrice,
 		}
 	}
 
@@ -252,11 +253,12 @@ func main() {
 			state.mu.Lock()
 			state.LastSeq++
 			seq := state.LastSeq
-			priceDelta := (rand.Float64() - 0.49) * 50.0
+			priceDelta := int64((rand.Float64() - 0.49) * 50.0 * 10000)
 			newPrice := state.LastPrice + priceDelta
-			if newPrice < 1000 {
-				newPrice = 1000
+			if newPrice < 10000000 {
+				newPrice = 10000000
 			}
+			state.LastPrice = newPrice
 			nowNs := time.Now().UnixNano()
 			if nowNs <= state.LastTsNs {
 				nowNs = state.LastTsNs + 1000
@@ -267,9 +269,9 @@ func main() {
 				InstrumentID: symID,
 				FeedSeq:      seq,
 				ExchangeTsNs: nowNs,
-				Price:        float64(int(newPrice*100)) / 100.0,
-				BidPrice:     float64(int((newPrice-10)*100)) / 100.0,
-				AskPrice:     float64(int((newPrice+10)*100)) / 100.0,
+				Price:        newPrice,
+				BidPrice:     newPrice - 100000, // -10.0000
+				AskPrice:     newPrice + 100000, // +10.0000
 				Volume:       int64(10 + rand.Intn(100)),
 			}
 

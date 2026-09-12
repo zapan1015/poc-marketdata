@@ -59,7 +59,9 @@ func (f *FaultInjector) Apply(t Tick, lastTick *Tick) (Tick, bool, bool, bool) {
 		isOutOfOrder = true
 		t.FeedSeq = lastTick.FeedSeq - 1
 		t.ExchangeTsNs = lastTick.ExchangeTsNs - int64(50*time.Millisecond)
-		t.Price = lastTick.Price - 1.0 // 구버전 가격
+		t.Price = lastTick.Price - 10000 // 구버전 가격 (1.0000 감산)
+		t.BidPrice = lastTick.BidPrice - 10000
+		t.AskPrice = lastTick.AskPrice - 10000
 		f.mu.Lock()
 		f.OutOfOrderCount++
 		f.mu.Unlock()

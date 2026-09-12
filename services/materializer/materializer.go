@@ -23,13 +23,13 @@ import (
 )
 
 type Tick struct {
-	InstrumentID int64   `json:"instrument_id"`
-	FeedSeq      int64   `json:"feed_seq"`
-	ExchangeTsNs int64   `json:"exchange_ts_ns"`
-	Price        float64 `json:"price"`
-	BidPrice     float64 `json:"bid_price"`
-	AskPrice     float64 `json:"ask_price"`
-	Volume       int64   `json:"volume,omitempty"`
+	InstrumentID int64 `json:"instrument_id"`
+	FeedSeq      int64 `json:"feed_seq"`
+	ExchangeTsNs int64 `json:"exchange_ts_ns"`
+	Price        int64 `json:"price"`     // fixed-point integer (scale: 10^4, e.g. 81210.3700 -> 812103700)
+	BidPrice     int64 `json:"bid_price"` // fixed-point integer (scale: 10^4)
+	AskPrice     int64 `json:"ask_price"` // fixed-point integer (scale: 10^4)
+	Volume       int64 `json:"volume,omitempty"`
 }
 
 var (

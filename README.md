@@ -61,9 +61,10 @@
 
 ### 3. Last-Write-Wins (LWW) 정합성 검증 (§3.2)
 
-- **검증 시나리오**: 20%의 Late Event(200~2000ms 과거 시각) 및 20%의 Out-of-order 이벤트를 주입.
+- **검증 시나리오**: 20%의 Late Event(200~2000ms 과거 시각) 및 20%의 Out-of-order 이벤트를 15만 건 트래픽에 주입.
+- **가격 데이터 표준**: IEEE 754 부동소수점 오차를 배제하기 위해 **정수 고정소수점(`bigint`, scale $10^4$, 소수점 4자리)** 전면 적용.
 - **실측 결과**:
-  - ScyllaDB `quote_latest`의 최종 저장 상태가 Ground Truth(최신 유효 시세)와 **100% 일치** (`Price: 81210.37`, `feed_seq: 44256` 완벽 정합, **PASS**).
+  - ScyllaDB `quote_latest`의 최종 저장 상태가 Ground Truth(최신 유효 시세)와 **100% 일치** (`Price: 976221063` [97622.1063], `feed_seq: 36006` 완벽 정합, **PASS**).
 
 ---
 

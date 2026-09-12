@@ -26,11 +26,12 @@ def main():
         sys.exit(1)
 
     expected = ground_truth[target_symbol]
-    expected_price = float(expected["price"])
+    expected_price_raw = int(expected["price"])
+    expected_price_display = expected_price_raw / 10000.0
     expected_seq = int(expected["feed_seq"])
 
     print(f"=== [LWW Verification for Symbol {target_symbol}] ===")
-    print(f"Expected Ground Truth -> Price: {expected_price}, feed_seq: {expected_seq}")
+    print(f"Expected Ground Truth -> Fixed-point Price: {expected_price_raw} ({expected_price_display:.4f}), feed_seq: {expected_seq}")
 
     # Query ScyllaDB via docker exec cqlsh
     cql_cmd = f"SELECT instrument_id, price, feed_seq, event_ts FROM marketdata.quote_latest WHERE instrument_id={target_symbol};"
@@ -48,15 +49,14 @@ def main():
     print("\n[ScyllaDB Current State Output]:")
     print(output)
 
-    # Check price match (handling formatting)
-    price_str = f"{expected_price:.2f}"
-    price_int_str = f"{int(expected_price)}"
+    # Check exact integer price and feed_seq match
+    price_matched = str(expected_price_raw) in output
+    seq_matched = str(expected_seq) in output
 
-    matched = price_str in output or price_int_str in output or str(expected_price) in output
-    if matched:
-        print(">> [PASS] LWW 검증 성공: out-of-order 지연 이벤트가 최신 가격을 덮어쓰지 않고 최신 상태가 보존됨.")
+    if price_matched and seq_matched:
+        print(">> [PASS] LWW 검증 성공: 고정소수점(bigint) 가격 및 feed_seq가 Ground Truth와 100% 일치합니다.")
     else:
-        print(f">> [FAIL] LWW 검증 실패: 기대값 {expected_price}이(가) ScyllaDB 결과에 존재하지 않습니다.")
+        print(f">> [FAIL] LWW 검증 실패: 기대값 (Price: {expected_price_raw}, seq: {expected_seq}) 불일치.")
         sys.exit(2)
 
 if __name__ == "__main__":
