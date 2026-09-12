@@ -6,33 +6,50 @@
 
 ## 전체 목차
 
-- [Part I — 아키텍처 명세서](#part-i--아키텍처-명세서)
+- [증권사 실시간 시세(Tick/Candle) 데이터 및 FDS 아키텍처 — 통합 문서](#증권사-실시간-시세tickcandle-데이터-및-fds-아키텍처--통합-문서)
+  - [전체 목차](#전체-목차)
+- [PART I — 아키텍처 명세서](#part-i--아키텍처-명세서)
   - [0. 설계 원칙 (Non-negotiable)](#0-설계-원칙-non-negotiable)
   - [1. System Architecture Diagram](#1-system-architecture-diagram)
+    - [핵심 경로 vs 비핵심 경로 분리](#핵심-경로-vs-비핵심-경로-분리)
   - [2. Canonical Tick Event](#2-canonical-tick-event)
   - [3. Ingestion Layer](#3-ingestion-layer)
   - [4. Kafka/Redpanda — Durable Event Backbone](#4-kafkaredpanda--durable-event-backbone)
   - [5. Low-Latency Fan-out Layer](#5-low-latency-fan-out-layer)
   - [6. ScyllaDB — 저지연 서빙 저장소](#6-scylladb--저지연-서빙-저장소)
+    - [6.1 Latest Quote — 스토리지 엔진 레벨 LWW (`USING TIMESTAMP`)](#61-latest-quote--스토리지-엔진-레벨-lww-using-timestamp)
+    - [6.2 Recent Tick — 분 단위 버킷](#62-recent-tick--분-단위-버킷)
   - [7. Trading Session Calendar](#7-trading-session-calendar)
   - [8. ClickHouse — 원천 이력과 OLAP](#8-clickhouse--원천-이력과-olap)
+    - [8.1 Raw Tick 스키마 (내장 Keeper 연동)](#81-raw-tick-스키마-내장-keeper-연동)
   - [9. ScyllaDB vs ClickHouse 역할 분담](#9-scylladb-vs-clickhouse-역할-분담)
-  - [10. 데이터 정합성 & Reconciliation](#10-데이터-정합성--reconciliation)
+  - [10. 데이터 정합성 \& Reconciliation](#10-데이터-정합성--reconciliation)
   - [11. API 계층](#11-api-계층)
-  - [12. Peak TPS & Latency Budget](#12-peak-tps--latency-budget)
+  - [12. Peak TPS \& Latency Budget](#12-peak-tps--latency-budget)
+    - [12.1 SLO 목표](#121-slo-목표)
+    - [12.2 구간별 지연 예산](#122-구간별-지연-예산)
   - [13. Multi-DC HA](#13-multi-dc-ha)
   - [14. 보안 및 컴플라이언스](#14-보안-및-컴플라이언스)
   - [15. 배포 토폴로지](#15-배포-토폴로지)
-  - [16. 장애·복구 정책](#16-장애복구-정책)
+  - [16. 장애·복구 정책 (요약)](#16-장애복구-정책-요약)
   - [17. 관측성](#17-관측성)
   - [18. 금지 구현 (Anti-pattern)](#18-금지-구현-anti-pattern)
   - [19. 최종 권장 스택](#19-최종-권장-스택)
   - [20. 최종 판단 근거](#20-최종-판단-근거)
-- [Part II — PoC 검증 가이드 및 실측 결과](#part-ii--poc-검증-가이드-및-실측-결과)
+- [PART II — PoC 검증 가이드 및 실측 결과](#part-ii--poc-검증-가이드-및-실측-결과)
   - [1단계: 계획 (Planning Stage)](#1단계-계획-planning-stage)
+    - [1.1 Windows 11/WSL2 제약 및 튜닝](#11-windows-11wsl2-제약-및-튜닝)
+    - [1.2 프로젝트 디렉토리 구성](#12-프로젝트-디렉토리-구성)
   - [2단계: 수행 (Execution Stage)](#2단계-수행-execution-stage)
-  - [3단계: 검증 (Validation Stage & Results)](#3단계-검증-validation-stage--results)
-  - [4단계: 기록 및 피드백 (Recording & Feedback Stage)](#4단계-기록-및-피드백-recording--feedback-stage)
+    - [Step 1: docker-compose.yml 및 기동](#step-1-docker-composeyml-및-기동)
+    - [Step 2: 스키마 초기화 및 Materializer 기동](#step-2-스키마-초기화-및-materializer-기동)
+  - [3단계: 검증 (Validation Stage \& Results)](#3단계-검증-validation-stage--results)
+    - [3.1 성능 검증 — Tier 1 (10,000 TPS)](#31-성능-검증--tier-1-10000-tps)
+    - [3.2 ScyllaDB 장애 격리성 검증 (§3.3)](#32-scylladb-장애-격리성-검증-33)
+    - [3.3 LWW 정합성 검증 (§3.2)](#33-lww-정합성-검증-32)
+  - [4단계: 기록 및 피드백 (Recording \& Feedback Stage)](#4단계-기록-및-피드백-recording--feedback-stage)
+    - [4.1 Benchmark Result Summary (2026-09-12)](#41-benchmark-result-summary-2026-09-12)
+    - [4.2 Bare Metal 전환 시 재검증 체크리스트](#42-bare-metal-전환-시-재검증-체크리스트)
   - [부록 A: Multi-DC 하이브리드 검증 (Vagrant 2-VM + Docker Compose)](#부록-a-multi-dc-하이브리드-검증-vagrant-2-vm--docker-compose)
 
 ---
@@ -56,104 +73,7 @@
 
 ## 1. System Architecture Diagram
 
-```mermaid
-flowchart TB
-    subgraph EXT["외부 시세원"]
-        KRX["KRX/코스콤 Feed<br/>UDP Multicast/Binary"]
-        GLB["해외거래소/Vendor Feed<br/>FIX/Binary"]
-        REF["Instrument Master<br/>기준정보/거래일 캘린더"]
-    end
-
-    subgraph ING["Ingestion Layer"]
-        FH["Feed Handler<br/>C++/Rust, CPU pinning"]
-        RBUF["Lock-free Ring Buffer"]
-        NORM["Normalizer<br/>→ Canonical Tick Event"]
-        VAL["Sequence/Gap Validator"]
-    end
-
-    KRX --> FH
-    GLB --> FH
-    REF -. instrument_id 매핑 .-> NORM
-    FH --> RBUF --> NORM --> VAL
-
-    subgraph BUS["Durable Event Backbone"]
-        K1[("Kafka/Redpanda<br/>partition key=instrument_id<br/>RF=3, acks=all")]
-        HOT["market.tick.hot<br/>(순간 폭주 종목 격리)"]
-        CORR["market.tick.correction"]
-    end
-
-    VAL --> K1
-    VAL -. 극단적 폭주 종목만 .-> HOT
-
-    subgraph RT["실시간 저지연 경로"]
-        MAT["Low-Latency Materializer<br/>Go / C++ / Rust"]
-        FAN["NATS Core<br/>(초저지연 필요시 Aeron)"]
-        FLINK["Flink<br/>Session Calendar 기반 Candle 집계<br/>+ Late-event 처리"]
-    end
-
-    K1 --> MAT --> FAN
-    K1 --> FLINK
-    HOT --> MAT
-    CORR --> FLINK
-
-    subgraph SERVE["Serving Store"]
-        SCY[("ScyllaDB Multi-DC<br/>Latest Quote(LWW by exchange_ts_us)<br/>Recent Tick / 잠정 Candle")]
-        LCACHE["Gateway Local Cache<br/>(NATS push로 무효화, Redis 선택적)"]
-    end
-
-    MAT --> SCY
-    FAN --> LCACHE
-
-    subgraph OLAP["Analytical Store"]
-        RAW[("ClickHouse Raw Tick<br/>ReplicatedMergeTree")]
-        CANDLE[("ClickHouse Candle<br/>권위값, 재계산 기준")]
-    end
-
-    K1 --> RAW
-    FLINK --> CANDLE
-    RAW -. 배치 재계산 .-> CANDLE
-
-    subgraph API["API Layer"]
-        WS["WebSocket Gateway<br/>구독 Aggregation"]
-        GRPC["gRPC Streaming"]
-        REST["REST API"]
-    end
-
-    FAN --> WS
-    FAN --> GRPC
-    LCACHE --> REST
-    SCY --> REST
-    CANDLE --> REST
-    RAW --> REST
-
-    WS --> CLIENT["MTS/HTS"]
-    GRPC --> CLIENT
-    GRPC --> INT["내부 서비스<br/>Risk/Portfolio/Alert"]
-    REST --> CLIENT
-
-    subgraph DQ["Data Quality"]
-        RECON["Reconciliation Job<br/>Airflow"]
-        OBS["Prometheus/Grafana/OTel"]
-    end
-
-    SCY -.-> RECON
-    RAW -.-> RECON
-    CANDLE -.-> RECON
-    K1 -.-> OBS
-    SCY -.-> OBS
-    RAW -.-> OBS
-    FAN -.-> OBS
-
-    subgraph DC2["DC-B (Replica, Active-Active)"]
-        K2[("Kafka")]
-        SCY2[("ScyllaDB Replica")]
-        RAW2[("ClickHouse Replica")]
-    end
-
-    K1 -. Cross-DC Replication .-> K2
-    SCY -. NetworkTopologyStrategy .-> SCY2
-    RAW -. ReplicatedMergeTree .-> RAW2
-```
+![System Architecture Diagram](../images/poc_1-1.png)
 
 ### 핵심 경로 vs 비핵심 경로 분리
 
