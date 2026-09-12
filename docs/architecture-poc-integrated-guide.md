@@ -1,4 +1,4 @@
-# 증권사 실시간 시세(Tick/Candle) 데이터 및 FDS 아키텍처 — 통합 문서
+# 증권사 실시간 시세(Tick/Candle) 데이터 및 FDS 아키텍처
 
 본 문서는 **(1) 최종 확정 아키텍처 명세서**와 **(2) 이를 검증하기 위한 Windows 11/WSL2 + Vagrant 하이브리드 PoC 가이드 및 실측 결과**를 하나로 통합한 확정본입니다. **Part I은 설계 원칙·컴포넌트·스키마·SLO**를, **Part II는 그 설계를 로컬 환경에서 단계적으로 검증한 절차 및 실측 최적화 데이터**를 기술합니다.
 
@@ -6,7 +6,7 @@
 
 ## 전체 목차
 
-- [증권사 실시간 시세(Tick/Candle) 데이터 및 FDS 아키텍처 — 통합 문서](#증권사-실시간-시세tickcandle-데이터-및-fds-아키텍처--통합-문서)
+- [증권사 실시간 시세(Tick/Candle) 데이터 및 FDS 아키텍처](#증권사-실시간-시세tickcandle-데이터-및-fds-아키텍처)
   - [전체 목차](#전체-목차)
 - [PART I — 아키텍처 명세서](#part-i--아키텍처-명세서)
   - [0. 설계 원칙 (Non-negotiable)](#0-설계-원칙-non-negotiable)
@@ -49,7 +49,7 @@
     - [3.3 LWW 정합성 검증 (§3.2)](#33-lww-정합성-검증-32)
   - [4단계: 기록 및 피드백 (Recording \& Feedback Stage)](#4단계-기록-및-피드백-recording--feedback-stage)
     - [4.1 Benchmark Result Summary (2026-09-12)](#41-benchmark-result-summary-2026-09-12)
-    - [4.2 Bare Metal 전환 시 재검증 체크리스트](#42-bare-metal-전환-시-재검증-체크리스트)
+    - [4.2 Bare Metal 전환 시 필수 재검증 체크리스트](#42-bare-metal-전환-시-필수-재검증-체크리스트)
   - [부록 A: Multi-DC 하이브리드 검증 (Vagrant 2-VM + Docker Compose)](#부록-a-multi-dc-하이브리드-검증-vagrant-2-vm--docker-compose)
 
 ---
