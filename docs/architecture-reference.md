@@ -1,5 +1,7 @@
 # 증권사 초저지연 시세/FDS 아키텍처 PoC 참조 문서
 
+> **전체 통합 명세서 안내**: 본 문서는 핵심 요약본입니다. 전체 20개 섹션의 확정 아키텍처 명세 및 PoC 가이드/실측 결과 전문은 [docs/architecture-poc-integrated-guide.md](architecture-poc-integrated-guide.md)를 참조하십시오.
+
 ## 1. 아키텍처 개요
 
 본 아키텍처는 고빈도 시세(Market Data Tick) 수신, 실시간 인메모리 최신 시세 갱신(LWW), 초저지연 팬아웃(Fanout), 대용량 틱 저장 및 이상 거래 탐지(FDS) 감사를 위한 초저지연 파이프라인을 검증합니다.
