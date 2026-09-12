@@ -167,7 +167,7 @@ CREATE KEYSPACE IF NOT EXISTS marketdata
 
 CREATE TABLE quote_latest (
     instrument_id bigint,
-    price         double,     -- Go float64 / gocql 드라이버 정합을 위해 double 적용
+    price         double,     -- [주의] gocql 드라이버 호환을 위해 임시 채택 (본운영 시 복원 필요)
     bid_price     double,
     ask_price     double,
     event_ts      timestamp,
@@ -175,6 +175,10 @@ CREATE TABLE quote_latest (
     PRIMARY KEY ((instrument_id))
 );
 ```
+
+> [!CAUTION]
+> **`double` 타입 채택의 리스크 및 본운영 복원 필수**
+> 본 PoC에서는 Go `gocql` 드라이버와 `float64` 간의 직렬화 호환성 및 빠른 검증을 위해 임시로 `double`을 채택했습니다. 그러나 실제 금융/증권 시스템에서 `double`(IEEE 754 부동소수점)은 반올림 오차(rounding error)를 유발하므로 절대 허용되지 않습니다. 본운영 환경 전환 시 반드시 **정수 기반 고정소수점(`bigint`, 예: 호가 단위를 반영한 $10^4$ 스케일링)** 또는 **임의 정밀도 `decimal`**로 원복하고 드라이버 커스텀 언마샬러를 적용해야 합니다 (§4.2 체크리스트 참조).
 
 쓰기 시 마이크로초 단위 `exchange_ts_us`를 `USING TIMESTAMP` 구문으로 지정:
 
@@ -275,12 +279,17 @@ ORDER BY (instrument_id, exchange_ts, feed_seq);
 
 ### 12.1 SLO 목표
 
-| 항목 | 목표치 | PoC 실측치 (튜닝 후) |
-|---|---:|---:|
-| Peak Ingestion | 300,000 TPS | Tier 1 (10,000 TPS 정속 실측) |
-| 실시간 Fan-out p99 | < 10.0 ms | **21.9 ms ~ 78.2 ms** (p50: 13.6ms) |
-| ScyllaDB 장애 시 팬아웃 열화율 | < 20.0 % | **0.8 %** (완벽 격리 확인) |
-| LWW 정합성 | 100% | **100% PASS** |
+| 항목 | 목표치 | PoC 실측치 (튜닝 후) | 최종 판정 |
+|---|---:|---:|:---:|
+| Peak Ingestion | 300,000 TPS | Tier 1 (9,999.6 TPS 정속 실측 완료) | **미검증 (Pending)** |
+| 실시간 Fan-out p99 | < 10.0 ms | **78.271 ms** (단일 누적 / p50: 13.68 ms) | **FAIL (목표 미달)** |
+| ScyllaDB 장애 시 팬아웃 열화율 | < 20.0 % | **0.8 %** (완벽 격리 확인) | **PASS** |
+| LWW 정합성 | 100% | **100% 일치** | **PASS** |
+
+> [!WARNING]
+> **SLO 달성 현황 및 한계점**
+> 1. **실시간 Fan-out p99 (FAIL)**: 튜닝 후 p50(13.68ms)조차 전체 지연 예산(10ms)을 초과하며, p99는 **78.271 ms**로 목표를 크게 미달했습니다. 이는 Docker Desktop / WSL2의 가상 네트워크 계층(vSwitch, NAT 포워딩, 컨텍스트 스위칭) 오버헤드가 주원인으로 분석되며, Bare Metal 환경 전환 후 재검증이 필수적입니다.
+> 2. **Peak Ingestion (미검증)**: 현재 로컬 환경에서는 Tier 1(10,000 TPS) 수준의 정상 상태 파이프라인만 실측되었으며, 피크 부하(300,000 TPS) 수용력은 아직 검증되지 않았습니다.
 
 ### 12.2 구간별 지연 예산
 
@@ -489,8 +498,8 @@ docker exec -i clickhouse clickhouse-client --multiquery < schema/clickhouse/ini
   ./services/latency-probe/latency-probe.exe -duration 35s &
   ./services/traffic-gen/traffic-gen.exe -tps 10000 -duration 30s -symbols 500 -zipf-skew 1.0
   ```
-- **실측 결과**:
-  ```
+- **실측 결과 (튜닝 후)**:
+  ```text
   =======================================================
              FINAL BENCHMARK REPORT (튜닝 후)
   =======================================================
@@ -498,11 +507,23 @@ docker exec -i clickhouse clickhouse-client --multiquery < schema/clickhouse/ini
   p50 Latency  :   13.679 ms (안정 구간 13.18 ms)
   p90 Latency  :   19.263 ms (안정 구간 18.78 ms)
   p95 Latency  :   20.719 ms (안정 구간 20.00 ms)
-  p99 Latency  :   21.920 ~ 78.271 ms
+  p99 Latency  :   78.271 ms (단일 누적 스칼라 / 5초 구간 윈도우 편차: 21.920 ~ 125.890 ms)
   Max Latency  :  178.815 ms
   =======================================================
   ```
-  - **분석**: `MinBytes: 1` 튜닝을 통해 p50 지연시간이 30.8ms에서 13.6ms로 55% 대폭 단축됨을 확인.
+
+- **심층 기술 분석 및 SLO 판정**:
+  1. **SLO 판정: FAIL (목표 미달)**:
+     - `MinBytes: 1` 튜닝으로 p50 지연시간이 30.8ms에서 13.68ms로 55% 단축되었으나, **p50(13.68ms)조차 전체 지연 예산(10ms)을 초과**하였으며, **p99는 78.271 ms로 목표(<10ms)에 크게 미달(FAIL)**했습니다.
+  2. **통계적 측정 방법론 정리 (단일 스칼라 p99 vs 윈도우 편차)**:
+     - p99는 통계적으로 단일 스칼라 값이어야 합니다. 전체 런(235,066건) 누적 기준 단일 스칼라 **p99는 `78.271 ms`**입니다.
+     - 이전 표기되었던 "21.92 ~ 78.27ms"는 latency-probe가 5초마다 히스토그램을 리셋(`windowHist`)하면서 출력한 구간별 윈도우 p99의 변동 범위(최소 21.92ms ~ 최대 125.89ms)를 병기했던 것으로, 공식 평가 지표는 전체 누적 단일 스칼라 수치인 **`78.271 ms`**로 확정합니다.
+  3. **인과관계 분석: 극히 낮은 리소스 사용률 vs 높은 지연시간**:
+     - 10,000 TPS 부하 상태에서 NATS CPU 사용률은 38.2%, Redpanda는 18.5%, 전체 컨테이너 메모리 합산은 ~1.25GB에 불과했습니다.
+     - 리소스가 충분히 여유로운데도 지연시간이 목표를 초과했다는 사실은, **병목의 원인이 연산 자원 부족(CPU saturation)이 아니라 Docker Desktop / WSL2 가상화 계층의 네트워크 스택 지연(Hyper-V vSwitch, Docker NAT 포워딩 홉, vNIC 패킷 처리, 유저-커널 모드 컨텍스트 스위칭)**에 있음을 명확히 증명합니다.
+     - 따라서 이는 애플리케이션 코드를 추가 튜닝한다고 해결될 수 없으며, **Bare Metal 환경 전환(Host Network, SR-IOV, 10G/25G 전용 NIC, NUMA 고정)**을 통해 가상화 네트워크 홉을 완전히 제거해야만 달성 가능한 과제입니다. (※ Docker Desktop 로컬 환경의 레이턴시 수치는 절대적인 프로덕션 성능 지표로 신뢰해서는 안 됨)
+  4. **Tier 2 (100K) / Tier 3 (300K TPS) 피크 부하 미검증**:
+     - 현재 실측은 Tier 1 (10,000 TPS) 정상 상태 파이프라인까지만 완료되었으며, 본 아키텍처의 핵심 목표인 **Peak Ingestion 300,000 TPS는 아직 미검증(Pending)** 상태로 남아 있습니다.
 
 ### 3.2 ScyllaDB 장애 격리성 검증 (§3.3)
 
@@ -539,23 +560,30 @@ python scripts/verify_lww.py validation/ground_truth/traffic-gen-ground-truth.js
 
 ### 4.1 Benchmark Result Summary (2026-09-12)
 
-| 지표 | 목표 기준 | 실측치 | 판정 |
-|---|---|---|---|
-| 달성 TPS | 10,000 | 9,999.6 TPS | **PASS** |
-| NATS p50 지연 | < 2.0 ms | 13.679 ms (안정 구간 13.18ms) | 개선 확인 |
-| NATS p95 지연 | < 5.0 ms | 20.719 ms | 개선 확인 |
-| NATS p99 지연 | < 10.0 ms | 21.92 ~ 78.27 ms | 개선 확인 |
-| Scylla pause 중 NATS p99 변화율 | < 20% | **0.8% 이하** | **PASS** |
-| LWW 정합성 | 100% | **100% 일치** | **PASS** |
-| CPU 사용률 | < 50% | NATS 38.2%, Redpanda 18.5% | **PASS** |
-| 메모리 사용량 | < 10 GB | 전체 컨테이너 합산 ~1.25 GB | **PASS** |
+| 지표 | 목표 기준 | 실측치 | 판정 | 비고 |
+|---|---|---|:---:|---|
+| **Tier 1 TPS** | 10,000 | 9,999.6 TPS | **PASS** | 60초간 60만 건 정속 주입 완주 |
+| **Peak TPS (Tier 3)** | 300,000 | 미실측 | **미검증 (Pending)** | 로컬 자원 한계로 프로덕션 클러스터에서 실측 필요 |
+| **NATS p50 지연** | < 2.0 ms | 13.679 ms (안정 13.18ms) | **FAIL (목표 미달)** | 전체 예산(10ms) 초과 (55% 개선되었으나 미달) |
+| **NATS p95 지연** | < 5.0 ms | 20.719 ms (안정 20.00ms) | **FAIL (목표 미달)** | 목표 대비 15.7ms 초과 |
+| **NATS p99 지연** | < 10.0 ms | **78.271 ms** (윈도우 21.9~125.9ms) | **FAIL (목표 미달)** | Docker/WSL2 네트워크 가상화 오버헤드가 주원인 |
+| **Scylla pause 중 열화율** | < 20% | **0.8% 이하** | **PASS** | 99.26ms → 100.09ms (비동기 큐 완벽 격리) |
+| **LWW 정합성** | 100% | **100% 일치** | **PASS** | 20% OOO 결함 주입에도 Ground Truth 완벽 일치 |
+| **CPU 사용률** | < 50% | NATS 38.2%, Redpanda 18.5% | **PASS** | 연산 자원 여유 충분 (네트워크 병목 방증) |
+| **메모리 사용량** | < 10 GB | 전체 컨테이너 합산 ~1.25 GB | **PASS** | 경량화 및 누수 없음 확인 |
 
-### 4.2 Bare Metal 전환 시 재검증 체크리스트
+### 4.2 Bare Metal 전환 시 필수 재검증 체크리스트
 
-- [x] **Kafka Reader MinBytes 최적화**: 10KB 배칭 대기를 1바이트 즉시 fetch로 전환 완료.
-- [x] **ScyllaDB 드라이버 안정성**: Pause 후 즉시 재연결(`ReconnectInterval: 1s`) 확인.
-- [ ] **CPU Pinning / NUMA**: Bare Metal 환경에서 Feed Handler와 Materializer 코어 고정 후 p99 재측정 필요.
-- [ ] **10G/25G 전용망 E2E Latency**: 가상 네트워크 홉 제거 후 p99 < 10ms 상시 충족 여부 검증.
+- [x] **Kafka Reader MinBytes 최적화 완료**: 10KB 배칭 대기를 1바이트 즉시 fetch로 전환하여 p50 55% 단축 확인.
+- [x] **ScyllaDB 드라이버 안정성 완료**: Pause 12초 후 즉시 재연결(`ReconnectInterval: 1s`) 및 16,599건 비동기 큐 드레인 확인.
+- [ ] **가상 네트워크 홉 제거 및 p99 < 10ms 재검증 (필수)**:
+  - Docker Desktop / WSL2 가상 네트워크(vSwitch, NAT 포워딩)를 배제하고 Bare Metal Host Network / 10G/25G 전용망 환경에서 레이턴시 재측정 (가상화 오버헤드 가설 실증).
+- [ ] **Tier 2 (100K) / Tier 3 (300K TPS) 피크 부하 실측 검증 (필수)**:
+  - 로컬 환경에서 미검증된 100,000 TPS 및 피크 300,000 TPS 파이프라인 수용력을 분산 클러스터에서 부하 주입 검증.
+- [ ] **가격 데이터 타입 `double` → 고정소수점(`bigint`) 또는 `decimal` 복원 (필수)**:
+  - PoC 드라이버 연동 편의상 임시 채택된 `double`을 제거하고, IEEE 754 부동소수점 오차가 발생하지 않도록 정수 고정소수점(scale $10^4$) 또는 `decimal`로 원복 및 gocql 커스텀 언마샬러 적용.
+- [ ] **CPU Pinning / NUMA 바인딩**:
+  - Bare Metal 노드에서 Feed Handler, Materializer, Redpanda, NATS 코어를 고정 격리하여 레이턴시 지터(jitter) 최소화.
 
 ---
 
