@@ -29,37 +29,7 @@
 
 ## 🏗 시스템 아키텍처 다이어그램
 
-```mermaid
-flowchart TB
-    subgraph INGEST["Ingestion & Backbone"]
-        GEN["Traffic-Gen<br/>(Zipf Skew 1.0~1.5, 결함 주입)"]
-        KAFKA[("Redpanda (Kafka API)<br/>market.tick.raw")]
-    end
-
-    GEN -->|10K ~ 300K TPS| KAFKA
-
-    subgraph RT["실시간 초저지연 경로"]
-        MAT["Materializer (Go)<br/>(동기 NATS + 비동기 Scylla 큐)"]
-        NATS["NATS Core 2.10<br/>market.{instrument_id}"]
-        PROBE["Latency Probe<br/>(HdrHistogram p50/p90/p99)"]
-    end
-
-    KAFKA -->|즉시 Fetch (MinBytes=1)| MAT
-    MAT -->|즉시 발행| NATS
-    NATS --> PROBE
-
-    subgraph SERVE["저지연 서빙 저장소"]
-        SCYLLA[("ScyllaDB 5.4<br/>quote_latest (LWW)")]
-    end
-
-    MAT -.->|USING TIMESTAMP 비동기 큐| SCYLLA
-
-    subgraph OLAP["원천 이력 및 FDS 감사"]
-        CH[("ClickHouse 24.3<br/>market_tick (내장 Keeper)")]
-    end
-
-    KAFKA -.->|Micro-batch| CH
-```
+![시스템 아키텍처 다이어그램](./images/readme_1-1.png)
 
 ---
 
